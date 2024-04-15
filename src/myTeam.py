@@ -157,7 +157,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def getFeatures(self, gameState, action):
         features = util.Counter()
         successor = self.getSuccessor(gameState, action)
-        food_locs = self.getFood(successor)
+        food = self.getFood(successor)
         foodList = food.asList()
         prev_food = self.getFood(gameState)
         prev_food_list = prev_food.asList()
@@ -186,7 +186,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 features["gotCloserToFood"] = 0.0
 
         # encode if pellet eaten by action
-        if prev_food_locs.count() > food.count():
+        if prev_food.count() > food.count():
             features["pellet_eaten"] = 1.0
         else:
             features["pellet_eaten"] = 0.0
