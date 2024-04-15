@@ -13,11 +13,11 @@
 
 
 from captureAgents import CaptureAgent
+import distanceCalculator
 import random, time, util
+import sys
 from game import Directions
 import game
-import distanceCalculator
-import sys
 from util import nearestPoint
 
 ##################
@@ -42,7 +42,13 @@ WEIGHT_PATH = "weights_MY_TEAM.json"
 #################
 
 
-def createTeam(firstIndex, secondIndex, isRed, first="DummyAgent", second="DummyAgent"):
+def createTeam(
+    firstIndex,
+    secondIndex,
+    isRed,
+    first="OffensiveReflexAgent",
+    second="DefensiveReflexAgent",
+):
     """
     This function should return a list of two agents that will form the
     team, initialized using firstIndex and secondIndex as their agent
@@ -64,6 +70,8 @@ def createTeam(firstIndex, secondIndex, isRed, first="DummyAgent", second="Dummy
 ##########
 # Agents #
 ##########
+
+
 class ReflexCaptureAgent(CaptureAgent):
     """
     A base class for reflex agents that chooses score-maximizing actions
@@ -149,26 +157,39 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def getFeatures(self, gameState, action):
         features = util.Counter()
         successor = self.getSuccessor(gameState, action)
-        foodList = self.getFood(successor).asList()
+        food_locs = self.getFood(successor)
+        foodList = food.asList()
+        prev_food = self.getFood(gameState)
+        prev_food_list = prev_food.asList()
         features["successorScore"] = -len(foodList)  # self.getScore(successor)
         myPos = successor.getAgentState(self.index).getPosition()
 
         # Compute distance to the nearest food
-
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minFoodDistance = min(
                 [self.getMazeDistance(myPos, food) for food in foodList]
             )
             features["distanceToFood"] = minFoodDistance
 
+        # ? Compute distance to the nearest food in prev state (should HELPER this and above, maybe not before vs for each action)
+        if (
+            len(prev_food_list) > 0
+        ):  # This should always be True,  but better safe than sorry
+            minPrevFoodDistance = min(
+                [self.getMazeDistance(myPos, food) for food in prev_food_list]
+            )
+
+        if len(prev_food_list) > 0 and len(foodList) > 0:
+            if minPrevFoodDistance < minFoodDistance:
+                features["gotCloserToFood"] = 1.0
+            else:
+                features["gotCloserToFood"] = 0.0
+
         # encode if pellet eaten by action
-        prev_food_locs = self.getFood(gameState)
-        successor_food_locs = self.getFood(successor)
-        if prev_food_locs.count() > successor_food_locs.count():
+        if prev_food_locs.count() > food.count():
             features["pellet_eaten"] = 1.0
         else:
             features["pellet_eaten"] = 0.0
-
         # Better baselines will avoid defenders!
         enemies = [
             successor.getAgentState(opponent)
@@ -261,113 +282,37 @@ class DummyAgent(CaptureAgent):
     create an agent as this is the bare minimum.
     """
 
-    # At the most basic level, I suggest *just* starting by getting your agent to be a hungry-hungry-Pacman that
-    # only cares about eating pellets -- this can be minimally accomplished by features that are sensitive
-    # to pellet proximity, eating a pellet (binary), and rewards that respond to each event (e.g., moving
-    # closer to a pellet and eating one). Try to start with only binary features, and save any more sophisticated
-    # "range sensitive" ones for your fine-tuning.
-
     def registerInitialState(self, gameState):
-        self.start = gameState.getAgentPosition(self.index)
+        """
+        This method handles the initial setup of the
+        agent to populate useful fields (such as what team
+        we're on).
+        A distanceCalculator instance caches the maze distances
+        between each pair of positions, so your agents can use:
+        self.distancer.getDistance(p1, p2)
+        IMPORTANT: This method may run for at most 15 seconds.
+        """
+
+        """
+    Make sure you do not delete the following line. If you would like to
+    use Manhattan distances instead of maze distances in order to save
+    on initialization time, please take a look at
+    CaptureAgent.registerInitialState in captureAgents.py.
+    """
         CaptureAgent.registerInitialState(self, gameState)
+
+        """
+    Your initialization code goes here, if you need any.
+    """
 
     def chooseAction(self, gameState):
         """
-        Picks among the actions with the highest Q(s,a).
+        Picks among actions randomly.
         """
         actions = gameState.getLegalActions(self.index)
 
-        # You can profile your evaluation time by uncommenting these lines
-        # start = time.time()
-        values = [self.evaluate(gameState, a) for a in actions]
-        # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
-
-        maxValue = max(values)
-        bestActions = [a for a, v in zip(actions, values) if v == maxValue]
-
-        foodLeft = len(self.getFood(gameState).asList())
-
-        if foodLeft <= 2:
-            bestDist = 9999
-            for action in actions:
-                successor = self.getSuccessor(gameState, action)
-                pos2 = successor.getAgentPosition(self.index)
-                dist = self.getMazeDistance(self.start, pos2)
-                if dist < bestDist:
-                    bestAction = action
-                    bestDist = dist
-            return bestAction
-
-        return random.choice(bestActions)
-
-    def getSuccessor(self, gameState, action):
         """
-        Finds the next successor which is a grid position (location tuple).
-        """
-        successor = gameState.generateSuccessor(self.index, action)
-        pos = successor.getAgentState(self.index).getPosition()
-        if pos != nearestPoint(pos):
-            # Only half a grid position was covered
-            return successor.generateSuccessor(self.index, action)
-        else:
-            return successor
+    You should change this in your own agent.
+    """
 
-    def evaluate(self, gameState, action):
-        """
-        Computes a linear combination of features and feature weights
-        """
-        features = self.getFeatures(gameState, action)
-        weights = self.getWeights(gameState, action)
-        return features * weights
-
-    def getFeatures(self, gameState, action):
-        """
-        Returns a counter of features for the state
-        """
-        features = util.Counter()
-        successor = self.getSuccessor(gameState, action)
-
-        # get agent position and food locs for prev and successor states
-        current_pos = gameState.getAgentState(self.index).getPosition()
-        successor_pos = successor.getAgentState(self.index).getPosition()
-        prev_food_locs = self.getFood(gameState)
-        successor_food_locs = self.getFood(successor)
-
-        # encode if pellet eaten by action
-        if prev_food_locs.count() > successor_food_locs.count():
-            features["pellet_eaten"] = 1.0
-        else:
-            features["pellet_eaten"] = 0.0
-
-        # find closest food for prev and sucessor (unless a pellet was eaten)
-
-        # if
-        prev_distancesToFood = [
-            self.distancer.getDistance(current_pos, foodPos)
-            for foodPos in successor_food_locs.asList()
-        ]
-        successor_closestFoodDistance = min(succesor_distancesToFood)
-
-        succesor_distancesToFood = [
-            self.distancer.getDistance(successor_pos, foodPos)
-            for foodPos in successor_food_locs.asList()
-        ]
-        successor_closestFoodDistance = min(succesor_distancesToFood)
-
-        # features["closestFoodDistance"] = float(closestFoodDistance) / (
-        #     succesor_food_locs.width * succesor_food_locs.height
-        # )
-
-        # encode if got close to nearest food
-
-        # encode score
-        features["successorScore"] = self.getScore(successor)
-        features.divideAll(10.0)
-        return features
-
-    def getWeights(self, gameState, action):
-        """
-        Normally, weights do not depend on the gamestate.  They can be either
-        a counter or a dictionary.
-        """
-        return {"successorScore": 1.0}
+        return random.choice(actions)
