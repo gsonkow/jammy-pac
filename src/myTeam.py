@@ -15,6 +15,8 @@
 from captureAgents import CaptureAgent
 import distanceCalculator
 import random, time, util
+import json
+from os.path import exists
 import sys
 from game import Directions
 import game
@@ -31,15 +33,24 @@ TRAINING = True
 # Name of weights / any agent parameters that should persist between
 # games. Should be loaded at the start of any game, training or otherwise
 # [!] Replace MY_TEAM with your team name
-WEIGHT_PATH = "weights_MY_TEAM.json"
+OFFENSE_WEIGHT_PATH = "weights_MY_TEAM.json"
 
 # Any other constants used for your training (learning rate, discount, etc.)
 # should be specified here
 # [!] TODO
+# TODO learning rate, discount, etc
+# FRESH_START = False?
 
 #################
 # Team creation #
 #################
+# ! WEIGHT questions
+# - having trouble with inialization logic. If training...  training, do we initialize weights here?
+
+# FONERY - where do we initialize weights?
+# ! how to handle defense vs offense in the JSON
+# ! where is update taking place?
+# ! do we need that "if ghost near, don't eat pellet" logic?
 
 
 def createTeam(
@@ -96,7 +107,7 @@ class ReflexCaptureAgent(CaptureAgent):
         bestActions = [a for a, v in zip(actions, values) if v == maxValue]
 
         foodLeft = len(self.getFood(gameState).asList())
-
+        #! Forney am I misreading this? Seems like it should be for offense?
         if foodLeft <= 2:
             bestDist = 9999
             for action in actions:
@@ -106,7 +117,18 @@ class ReflexCaptureAgent(CaptureAgent):
                 if dist < bestDist:
                     bestAction = action
                     bestDist = dist
+            # UPDATE WEIGHTS
+            if TRAINING:
+                # TODO
+                reward = self.getReward(gameState, bestAction)
+                # TODO
+                self.updateWeights(reward, self.getFeatures(gameState, bestAction))
             return bestAction
+
+        # TODO - helperize this updatewieghts thing
+        if TRAINING:
+            reward = self.getReward(gameState, bestAction)
+            self.updateWeights(reward, self.getFeatures(gameState, bestAction))
 
         return random.choice(bestActions)
 
@@ -144,7 +166,18 @@ class ReflexCaptureAgent(CaptureAgent):
         Normally, weights do not depend on the gamestate.  They can be either
         a counter or a dictionary.
         """
-        return {"successorScore": 1.0}
+        return self.weights
+
+    def loadWeights(self):
+        try:
+            with open(WEIGHT_PATH, "r") as file:
+                self.weights = json.load(file)
+        except IOError:
+            print("Weights file not found, using default weights.")
+            # TODO need to actually make this happen on error
+
+    def initializeWeights(self):
+        self.weights = {"successorScore": 1.0}
 
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
@@ -153,6 +186,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     we give you to get an idea of what an offensive agent might look like,
     but it is by no means the best or only way to build an offensive agent.
     """
+
+    def registerInitialState(self, gameState):
+        self.start = gameState.getAgentPosition(self.index)
+        CaptureAgent.registerInitialState(self, gameState)
+        if exists(OFFENSE_WEIGHT_PATH):
+            self.load_weights()
+        else:
+            self.initialize_weights()
 
     def getFeatures(self, gameState, action):
         features = util.Counter()
@@ -215,15 +256,36 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         )
         features["separationAnxiety"] = minFriendDistance
 
+        # ! where was the logic to not eat pellet if ghost near? is that here?
         return features
 
     def getWeights(self, gameState, action):
         return {
-            "successorScore": 100,
-            "distanceToFood": -1,
-            "distanceToGhost": 50,
-            "stop": -100,
-            "separationAnxiety": -0.7,
+            "successorScore": 0,
+            "distanceToFood": 0,
+            "gotCloserToFood": 0,
+            "pellet_eaten" "distanceToGhost": 0,
+            "stop": 0,
+            "separationAnxiety": 0,
+        }
+
+    def loadWeights(self):
+        try:
+            with open(OFFENSE_WEIGHT_PATH, "r") as file:
+                self.weights = json.load(file)
+        # TODO need to actually make this happen on error
+
+        except IOError:
+            print("Weights file not found, using default weights.")
+
+    def initializeWeights(self):
+        self.weights = {
+            "successorScore": 0,
+            "distanceToFood": 0,
+            "gotCloserToFood": 0,
+            "pellet_eaten" "distanceToGhost": 0,
+            "stop": 0,
+            "separationAnxiety": 0,
         }
 
 
@@ -234,6 +296,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
     could be like.  It is not the best or only way to make
     such an agent.
     """
+
+    def registerInitialState(self, gameState):
+        self.start = gameState.getAgentPosition(self.index)
+        if exists(WEIGHT_PATH):
+            self.load_weights()
+        else:
+            self.initialize_weights()
 
     def getFeatures(self, gameState, action):
         features = util.Counter()
