@@ -112,7 +112,7 @@ class ReflexCaptureAgent(CaptureAgent):
         bestActions = [a for a, v in zip(actions, values) if v == maxValue]
 
         foodLeft = len(self.getFood(gameState).asList())
-        #! Forney am I misreading this? Seems like it should be for offense?
+
         if foodLeft <= 2:
             bestDist = 9999
             for action in actions:
@@ -122,18 +122,7 @@ class ReflexCaptureAgent(CaptureAgent):
                 if dist < bestDist:
                     bestAction = action
                     bestDist = dist
-            # UPDATE WEIGHTS
-            if TRAINING:
-                # TODO
-                reward = self.getReward(gameState, bestAction)
-                # TODO
-                self.updateWeights(reward, self.getFeatures(gameState, bestAction))
             return bestAction
-
-        # TODO - helperize this updatewieghts thing
-        if TRAINING:
-            reward = self.getReward(gameState, bestAction)
-            self.updateWeights(reward, self.getFeatures(gameState, bestAction))
 
         return random.choice(bestActions)
 
@@ -171,18 +160,7 @@ class ReflexCaptureAgent(CaptureAgent):
         Normally, weights do not depend on the gamestate.  They can be either
         a counter or a dictionary.
         """
-        return self.weights
-
-    def loadWeights(self):
-        try:
-            with open(WEIGHT_PATH, "r") as file:
-                self.weights = json.load(file)
-        except IOError:
-            print("Weights file not found, using default weights.")
-            # TODO need to actually make this happen on error
-
-    def initializeWeights(self):
-        self.weights = {"successorScore": 1.0}
+        return {"successorScore": 1.0}
 
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
@@ -321,33 +299,33 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # encode if pellet eaten by action
         if prevFood.count() > food.count():
-            features["pellet_eaten"] = 1.0
+            features["pelletEaten"] = 1.0
         else:
-            features["pellet_eaten"] = 0.0
+            features["pelletEaten"] = 0.0
         # Better baselines will avoid defenders!
-        enemies = [
-            successor.getAgentState(opponent)
-            for opponent in self.getOpponents(successor)
-        ]
-        ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
-        if len(ghosts) > 0:
-            minGhostDistance = (
-                min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
-            )
-            features["distanceToGhost"] = minGhostDistance
+        # enemies = [
+        #     successor.getAgentState(opponent)
+        #     for opponent in self.getOpponents(successor)
+        # ]
+        # ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
+        # if len(ghosts) > 0:
+        #     minGhostDistance = (
+        #         min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
+        #     )
+        #     features["distanceToGhost"] = minGhostDistance
 
         # Can't stop won't stop
         if action == Directions.STOP:
             features["stop"] = 1
 
         # Safety in numbers! ...even if that number is 2
-        friends = [
-            successor.getAgentState(friend) for friend in self.getTeam(successor)
-        ]
-        minFriendDistance = (
-            min([self.getMazeDistance(myPos, a.getPosition()) for a in friends]) + 1
-        )
-        features["separationAnxiety"] = minFriendDistance
+        # friends = [
+        #     successor.getAgentState(friend) for friend in self.getTeam(successor)
+        # ]
+        # minFriendDistance = (
+        #     min([self.getMazeDistance(myPos, a.getPosition()) for a in friends]) + 1
+        # )
+        # features["separationAnxiety"] = minFriendDistance
 
         # ! where was the logic to not eat pellet if ghost near? is that here?
         return features
@@ -379,14 +357,18 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             print("Weights file not found, using default weights.")
 
     def initializeWeights(self):
-        self.weights = {
-            "successorScore": 0,
-            "distanceToFood": 0,
-            "gotCloserToFood": 0,
-            "pellet_eaten" "distanceToGhost": 0,
-            "stop": 0,
-            "separationAnxiety": 0,
-        }
+        self.weights = util.Counter()
+        keys = [
+            "successorScore",
+            "distanceToFood",
+            "gotCloserToFood",
+            "pelletEaten",
+            # "distanceToGhost",
+            "stop",
+            # "separationAnxiety",
+        ]
+        for key in keys:
+            self.weights[key] = 0.0
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
