@@ -221,6 +221,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         self.prevAction = action
         self.prevState = gameState
         self.numOfMoves += 1
+        print("=========action===============")
+        print(action)
+        print("move #: ", self.numOfMoves)
         return action
 
     def getReward(self, prevState, prev_action, currentState):
@@ -244,6 +247,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # Reward for eating a pellet
         if len(currentFood.asList()) < len(prevFood.asList()):
             reward += 10
+            print("pellet eaten reward", reward)
+
 
         # Reward for getting closer to the nearest pellet
         prevMinDistance = min(
@@ -254,12 +259,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         )
         if currentMinDistance < prevMinDistance:
             reward += 2
+            print("========reward================")
+            print("got closer to food reward", reward)
 
         # Negative reward for getting eaten
-        if currentPos == self.start and prevPos not in currentState.getLegalActions(
-            self.index
-        ):
-            reward -= 100
+        if self.getMazeDistance(currentPos, prevPos) > 2:
+            reward -= 10
+            print("got eaten reward", reward) 
+        
 
         return reward
 
@@ -273,26 +280,29 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         foodList = food.asList()
         prevFood = self.getFood(gameState)
         prevFoodList = prevFood.asList()
-        features["successorScore"] = -len(foodList)  # self.getScore(successor)
-        myPos = successor.getAgentState(self.index).getPosition()
+        # features["successorScore"] = -len(foodList)  # self.getScore(successor)
+        prevPos = gameState.getAgentState(self.index).getPosition()
+        nextPos = successor.getAgentState(self.index).getPosition()
 
         # Compute distance to the nearest food
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minFoodDistance = min(
-                [self.getMazeDistance(myPos, food) for food in foodList]
+                [self.getMazeDistance(nextPos, food) for food in foodList]
             )
-            features["distanceToFood"] = minFoodDistance
+        #     features["distanceToFood"] = minFoodDistance
 
         # ? Compute distance to the nearest food in prev state (should HELPER this and above, maybe not before vs for each action)
         if (
             len(prevFoodList) > 0
         ):  # This should always be True,  but better safe than sorry
             minPrevFoodDistance = min(
-                [self.getMazeDistance(myPos, food) for food in prevFoodList]
+                [self.getMazeDistance(prevPos, food) for food in prevFoodList]
             )
 
+        # why is this "if" here?
         if len(prevFoodList) > 0 and len(foodList) > 0:
-            if minPrevFoodDistance < minFoodDistance:
+            # print(minPrevFoodDistance, minFoodDistance)
+            if minPrevFoodDistance > minFoodDistance:
                 features["gotCloserToFood"] = 1.0
             else:
                 features["gotCloserToFood"] = 0.0
@@ -315,9 +325,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         #     features["distanceToGhost"] = minGhostDistance
 
         # Can't stop won't stop
-        if action == Directions.STOP:
-            features["stop"] = 1
-
+        # if action == Directions.STOP:
+        #     features["stop"] = 1
+        # print("=========features===============")
+        # print(features)
+        # print("nextPos: ", nextPos)
+        # print("action: ", action)
         # Safety in numbers! ...even if that number is 2
         # friends = [
         #     successor.getAgentState(friend) for friend in self.getTeam(successor)
@@ -334,6 +347,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         return self.weights
 
     def updateWeights(self, state, action, nextState, reward):
+        print("========updated weights=======")
+
         # get max Q value for next state:
         actions = nextState.getLegalActions(self.index)
         values = [self.evaluate(nextState, a) for a in actions]
@@ -341,11 +356,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # get difference
         difference = (reward + DISCOUNT_RATE * maxValue) - self.evaluate(state, action)
-
+        print("difference: ", difference)
         # update weights
         features = self.getFeatures(state, action)
+        print("features: ", features)
         for feature in features:
+            print("feature: ", features[feature])
             self.weights[feature] += LEARNING_RATE * difference * features[feature]
+        print("weights: ", self.weights)
 
     def loadWeights(self):
         try:
@@ -359,12 +377,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def initializeWeights(self):
         self.weights = util.Counter()
         keys = [
-            "successorScore",
-            "distanceToFood",
+            # "successorScore",
+            # "distanceToFood",
             "gotCloserToFood",
             "pelletEaten",
             # "distanceToGhost",
-            "stop",
+            # "stop",
             # "separationAnxiety",
         ]
         for key in keys:
@@ -406,6 +424,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         ]
         if action == rev:
             features["reverse"] = 1
+        
 
         return features
 
