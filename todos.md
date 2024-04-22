@@ -1,8 +1,8 @@
--Immediate concerns
-seperating rewards
-storing weights
+-Immediate concerns\
+seperating rewards\
+storing weights\
 
--priorities
-return with pellets
-encode more features
+-priorities\
+return with pellets\
+encode more features\
 
