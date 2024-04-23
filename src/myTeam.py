@@ -35,6 +35,7 @@ TRAINING = True
 # [!] Replace MY_TEAM with your team name
 OFFENSE_WEIGHT_PATH = "offense_Weights_JammyPac.json"
 WEIGHT_PATH = "weights_MY_TEAM.json"
+TRAINING_WEIGHT_PATH = "training_weights.json"
 
 # Any other constants used for your training (learning rate, discount, etc.)
 # should be specified here
@@ -190,6 +191,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if TRAINING and self.numOfMoves > 0:
             reward = self.getReward(self.prevState, self.prevAction, gameState)
             self.updateWeights(self.prevState, self.prevAction, gameState, reward)
+            #store weights into JSON file
+            self.storeWeights()
 
         # get best action
         actions = gameState.getLegalActions(self.index)
@@ -355,6 +358,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         features = self.getFeatures(state, action)
         for feature in features:
             self.weights[feature] += LEARNING_RATE * difference * features[feature]
+
+    def storeWeights(self):
+        weights_json = json.dumps(self.weights, indent=4)
+        with open(TRAINING_WEIGHT_PATH, "w") as outfile:
+            outfile.write(weights_json)
 
     def loadWeights(self):
         try:
