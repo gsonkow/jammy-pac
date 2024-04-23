@@ -36,6 +36,38 @@ TRAINING = True
 OFFENSE_WEIGHT_PATH = "offense_Weights_JammyPac.json"
 WEIGHT_PATH = "weights_MY_TEAM.json"
 TRAINING_WEIGHT_PATH = "training_weights.json"
+OFFENSE_WEIGHTS_GHOST_PATH = "offense_Weights_Ghost.json"
+OFFENSE_WEIGHTS_PELLET_PATH = "offense_Weights_Pellet.json"
+OFFENSE_WEIGHTS_OTHER_PATH = "offense_Weights_Other.json"
+OFFENSE_WEIGHTS_GHOST_FEATURES = [
+    # "successorScore",
+    # "distanceToFood",
+    # "gotCloserToFood",
+    # "pelletEaten",
+    "distanceToGhost",
+    # "stop",
+    # "separationAnxiety",
+]
+OFFENSE_WEIGHTS_PELLET_FEATURES = [
+    # "successorScore",
+    # TODO bring distanceToFood back in
+    # "distanceToFood",
+    "gotCloserToFood",
+    "pelletEaten",
+    # "distanceToGhost",
+    # "stop",
+    # "separationAnxiety",
+]
+OFFENSE_WEIGHTS_OTHER_FEATURES = [
+    "successorScore",
+    # "distanceToFood",
+    # "gotCloserToFood",
+    # "pelletEaten",
+    # "distanceToGhost",
+    "stop",
+    "separationAnxiety",
+]
+
 
 # Any other constants used for your training (learning rate, discount, etc.)
 # should be specified here
@@ -189,16 +221,26 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # get reward for previous action and update weights
         if TRAINING and self.numOfMoves > 0:
-            reward = self.getReward(self.prevState, self.prevAction, gameState)
-            self.updateWeights(self.prevState, self.prevAction, gameState, reward)
-            #store weights into JSON file
-            self.storeWeights()
+            pelletReward = self.getPelletReward(
+                self.prevState, self.prevAction, gameState
+            )
+            ghostReward = self.getGhostReward(
+                self.prevState, self.prevAction, gameState
+            )
+            # TODO otherReward
+            rewards = {"pelletReward": pelletReward, "ghostReward": ghostReward}
+
+            self.updateWeights(self.prevState, self.prevAction, gameState, rewards)
+
+            # store weights into JSON file
+            # disabled for now
+            # self.storeWeights()
 
         # get best action
         actions = gameState.getLegalActions(self.index)
         # You can profile your evaluation time by uncommenting these lines
         # start = time.time()
-        values = [self.evaluate(gameState, a) for a in actions]
+        values = [self.evaluate(gameState, a)["total"] for a in actions]
         # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
         maxValue = max(values)
         bestActions = [a for a, v in zip(actions, values) if v == maxValue]
@@ -228,7 +270,24 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         self.numOfMoves += 1
         return action
 
-    def getReward(self, prevState, prev_action, currentState):
+    def evaluate(self, gameState, action):
+        """
+        Computes a linear combination of features and feature weights
+        """
+        evaluated = {}
+        pelletFeatures = self.getPelletFeatures(gameState, action)
+        pelletWeights = self.getWeightSet("offense_pellet_weights")
+        evaluated["pelletValue"] = pelletFeatures * pelletWeights
+
+        ghostFeatures = self.getGhostFeatures(gameState, action)
+        ghostWeights = self.getWeightSet("offense_ghost_weights")
+        evaluated["ghostValue"] = ghostFeatures * ghostWeights
+
+        evaluated["total"] = evaluated["pelletValue"] + evaluated["ghostValue"]
+
+        return evaluated
+
+    def getGhostReward(self, prevState, prev_action, currentState):
         """
         Design a reward function such that rewards are neither granted too densely nor too sparsely,
         and inform your agent as to what constitutes "good" and "bad" decisions given some decomposition
@@ -236,22 +295,42 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         the state to determine the reward, like figuring out if an attacking Pacman died from a move such
         that it was reset to the starting position after running into a defending ghost.
         """
-        # 
+        #
 
-        
         reward = 0
-
-        # get positions
         prevPos = prevState.getAgentState(self.index).getPosition()
         currentPos = currentState.getAgentState(self.index).getPosition()
 
-        # get pellet info
+        # Negative reward for getting eaten
+        if self.getMazeDistance(currentPos, prevPos) > 2:
+            reward -= 0.5
+
+        # TODO negative reward for getting closer to ghosts? Negative reward for losing whole game?
+
+        return reward
+
+        # TODO TERMINAL rewards for winning or losing?
+        # technically not using prev_action, is it even necessary as a parameter?
+
+    def getPelletReward(self, prevState, prev_action, currentState):
+        """
+        Design a reward function such that rewards are neither granted too densely nor too sparsely,
+        and inform your agent as to what constitutes "good" and "bad" decisions given some decomposition
+        of the state. This will, for some actions, depend on taking a "pre" and "post" action snapshot of
+        the state to determine the reward, like figuring out if an attacking Pacman died from a move such
+        that it was reset to the starting position after running into a defending ghost.
+        """
+        reward = 0
+
+        # get positions & pellet info
+        prevPos = prevState.getAgentState(self.index).getPosition()
+        currentPos = currentState.getAgentState(self.index).getPosition()
         prevFood = self.getFood(prevState)
         currentFood = self.getFood(currentState)
 
         # Reward for eating a pellet
         if len(currentFood.asList()) < len(prevFood.asList()):
-            reward += 10
+            reward += 0.1
 
         # Reward for getting closer to the nearest pellet
         prevMinDistance = min(
@@ -261,16 +340,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             self.getMazeDistance(currentPos, food) for food in currentFood.asList()
         )
         if currentMinDistance < prevMinDistance:
-            reward += 2
+            reward += 0.01
 
-        # Negative reward for getting eaten
-        if self.getMazeDistance(currentPos, prevPos) > 2:
-            reward -= 10
-        
+        # TODO terminal reward for winning?
         return reward
 
-        # TODO TERMINAL rewards for winning or losing?
-        # technically not using prev_action, is it even necessary as a parameter?
+    # TODO defGetOtherRewards
 
     def getFeatures(self, gameState, action):
         features = util.Counter()
@@ -287,7 +362,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             minFoodDistance = min(
                 [self.getMazeDistance(nextPos, food) for food in foodList]
             )
-       
+
         # Compute distance to the nearest food in prev state
         if (
             len(prevFoodList) > 0
@@ -307,7 +382,6 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             features["pelletEaten"] = 1.0
         else:
             features["pelletEaten"] = 0.0
-
 
         # disabled features from BetterBaseline:
         # features["successorScore"] = -len(foodList)  # self.getScore(successor)
@@ -343,21 +417,104 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         return features
 
+    def getGhostFeatures(self, gameState, action):
+        features = util.Counter()
+        successor = self.getSuccessor(gameState, action)
+        food = self.getFood(successor)
+        foodList = food.asList()
+        prevFood = self.getFood(gameState)
+        prevFoodList = prevFood.asList()
+        prevPos = gameState.getAgentState(self.index).getPosition()
+        nextPos = successor.getAgentState(self.index).getPosition()
+
+        # Better baselines will avoid defenders!
+        enemies = [
+            successor.getAgentState(opponent)
+            for opponent in self.getOpponents(successor)
+        ]
+        ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
+        if len(ghosts) > 0:
+            minGhostDistance = (
+                min([self.getMazeDistance(nextPos, a.getPosition()) for a in ghosts])
+                + 1
+            )
+            features["distanceToGhost"] = minGhostDistance
+
+        return features
+
+    def getPelletFeatures(self, gameState, action):
+        features = util.Counter()
+        successor = self.getSuccessor(gameState, action)
+        food = self.getFood(successor)
+        foodList = food.asList()
+        prevFood = self.getFood(gameState)
+        prevFoodList = prevFood.asList()
+        prevPos = gameState.getAgentState(self.index).getPosition()
+        nextPos = successor.getAgentState(self.index).getPosition()
+
+        # Compute distance to the nearest food
+        if len(foodList) > 0:  # This should always be True,  but better safe than sorry
+            minFoodDistance = min(
+                [self.getMazeDistance(nextPos, food) for food in foodList]
+            )
+
+        # Compute distance to the nearest food in prev state
+        if (
+            len(prevFoodList) > 0
+        ):  # This should always be True,  but better safe than sorry
+            minPrevFoodDistance = min(
+                [self.getMazeDistance(prevPos, food) for food in prevFoodList]
+            )
+
+        if len(prevFoodList) > 0 and len(foodList) > 0:
+            if minPrevFoodDistance > minFoodDistance:
+                features["gotCloserToFood"] = 1.0
+            else:
+                features["gotCloserToFood"] = 0.0
+
+        # encode if pellet eaten by action
+        if prevFood.count() > food.count():
+            features["pelletEaten"] = 1.0
+        else:
+            features["pelletEaten"] = 0.0
+        return features
+
+    def getWeightSet(self, weightSet):
+        return self.weights[weightSet]
+
     def getWeights(self, gameState, action):
         return self.weights
 
-    def updateWeights(self, state, action, nextState, reward):
+    def updateWeights(self, state, action, nextState, rewards):
         # get max Q value for next state:
-        actions = nextState.getLegalActions(self.index)
-        values = [self.evaluate(nextState, a) for a in actions]
-        maxValue = max(values)
 
-        # get difference
-        difference = (reward + DISCOUNT_RATE * maxValue) - self.evaluate(state, action)
+        actions = nextState.getLegalActions(self.index)
+        pelletValues = [self.evaluate(nextState, a)["pelletValue"] for a in actions]
+        maxPelletValue = max(pelletValues)
+        ghostValues = [self.evaluate(nextState, a)["ghostValue"] for a in actions]
+        maxGhostValue = max(ghostValues)
+        # !Forney question - is max value calculated on the aggregate for all weights or
+        # !individually for each weight set?
+
+        pelletDifference = (
+            rewards["pelletReward"] + DISCOUNT_RATE * maxPelletValue
+        ) - self.evaluate(state, action)["pelletValue"]
         # update weights
-        features = self.getFeatures(state, action)
-        for feature in features:
-            self.weights[feature] += LEARNING_RATE * difference * features[feature]
+        pelletFeatures = self.getPelletFeatures(state, action)
+        for feature in pelletFeatures:
+            self.weights["offense_pellet_weights"][feature] += (
+                LEARNING_RATE * pelletDifference * pelletFeatures[feature]
+            )
+
+        ghostDifference = (
+            rewards["ghostReward"] + DISCOUNT_RATE * maxGhostValue
+        ) - self.evaluate(state, action)["ghostValue"]
+        # update weights
+        ghostFeatures = self.getGhostFeatures(state, action)
+        for feature in ghostFeatures:
+            self.weights["offense_ghost_weights"][feature] += (
+                LEARNING_RATE * ghostDifference * ghostFeatures[feature]
+            )
 
     def storeWeights(self):
         weights_json = json.dumps(self.weights, indent=4)
@@ -366,25 +523,35 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
     def loadWeights(self):
         try:
-            with open(OFFENSE_WEIGHT_PATH, "r") as file:
-                self.weights = json.load(file)
-        # TODO need to actually make this happen on error
+            self.weights = {}
+            with open(OFFENSE_WEIGHTS_PELLET_PATH, "r") as file:
+                self.weights["offense_pellet_weights"] = json.load(file)
+            with open(OFFENSE_WEIGHTS_GHOST_PATH, "r") as file:
+                self.weights["offense_ghost_weights"] = json.load(file)
+            with open(OFFENSE_WEIGHTS_OTHER_PATH, "r") as file:
+                self.weights["offense_other_weights"] = json.load(file)
         except IOError:
-            print("Weights file not found, using default weights.")
+            print("Weights file not found.")
 
     def initializeWeights(self):
-        self.weights = util.Counter()
-        keys = [
-            # "successorScore",
-            # "distanceToFood",
-            "gotCloserToFood",
-            "pelletEaten",
-            # "distanceToGhost",
-            # "stop",
-            # "separationAnxiety",
-        ]
-        for key in keys:
-            self.weights[key] = 0.0
+        self.weights = {}
+
+        # offense pellets
+        offense_pellet_weights = util.Counter()
+        for key in OFFENSE_WEIGHTS_PELLET_FEATURES:
+            offense_pellet_weights[key] = 0.0
+        self.weights["offense_pellet_weights"] = offense_pellet_weights
+        # offense ghosts
+        offense_ghost_weights = util.Counter()
+        for key in OFFENSE_WEIGHTS_GHOST_FEATURES:
+            offense_ghost_weights[key] = 0.0
+        self.weights["offense_ghost_weights"] = offense_ghost_weights
+
+        # offense other (disabled for now)
+        # offense_other_weights = util.Counter()
+        # for key in OFFENSE_WEIGHTS_OTHER_FEATURES:
+        #     offense_other_weights[key] = 0.0
+        # self.weights["offense_other_weights"] = offense_other_weights
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
@@ -422,7 +589,6 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         ]
         if action == rev:
             features["reverse"] = 1
-        
 
         return features
 
