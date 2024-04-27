@@ -224,7 +224,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             self.updateWeights(self.prevState, self.prevAction, gameState, rewards)
 
             # store weights into JSON file
-            self.storeWeights()
+            if gameState.isOver():
+                self.storeWeights()
 
         # get best action
         actions = gameState.getLegalActions(self.index)
