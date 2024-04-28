@@ -39,7 +39,7 @@ GHOST = "ghosts"
 GENERAL = "general"
 NEAR_PELLETS = "near_pellets"
 OFFENSE_FEATURE_SECTIONS = [PELLET, GHOST, GENERAL, NEAR_PELLETS]
-OFFENSE_FEATURES_GHOST = ["distanceToGhost"]
+OFFENSE_FEATURES_GHOST = ["death", "distanceToGhost"]  # "ghostCloser"
 OFFENSE_PELLET_FEATURES = [
     "gotCloserToFood",
     "pelletEaten",
@@ -116,6 +116,7 @@ class ReflexCaptureAgent(CaptureAgent):
         # You can profile your evaluation time by uncommenting these lines
         # start = time.time()
         values = [self.evaluate(gameState, a) for a in actions]
+
         # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
 
         maxValue = max(values)
@@ -189,6 +190,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # built in stuff
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
+        self.deaths = 0
 
         # record keeping variables
         self.prevAction = None
@@ -234,6 +236,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         self.prevState = gameState
         self.numOfMoves += 1
         print("move no: ", self.numOfMoves)
+        print("=====")
 
         return action
 
@@ -258,6 +261,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         features = self.getFeatures(gameState, action)
         weights = self.getWeights(gameState, action)
         total = 0
+        print("features", features)
+        print("=============")
+        print("weights", weights)
+        print("=============")
+
         for key in OFFENSE_FEATURE_SECTIONS:
             for feature in features[key]:
                 total += features[key][feature] * weights[key][feature]
@@ -315,22 +323,22 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             features[PELLET]["pelletEaten"] = 0.0
 
         # MARK: ghost features
-        # features[GHOST]["distanceToGhost"]
 
-        enemiesPrev = [
-            gameState.getAgentState(opponent)
-            for opponent in self.getOpponents(gameState)
-        ]
+        # features[GHOST]["death"]
+        if self.getMazeDistance(nextPos, prevPos) > 2:
+            features[GHOST]["death"] = 1.0
+            print("fuck death feature")
+            print("@@@@@@@@@@@@@@@")
+        else:
+            features[GHOST]["death"] = 0.0
+
+        # get current enemies
         enemiesCurr = [
             successor.getAgentState(opponent)
             for opponent in self.getOpponents(successor)
         ]
-
         ghostsCurr = [
             a for a in enemiesCurr if not a.isPacman and a.getPosition() != None
-        ]
-        ghostPrev = [
-            a for a in enemiesPrev if not a.isPacman and a.getPosition() != None
         ]
         if len(ghostsCurr) > 0:
             minGhostDistanceCurr = (
@@ -339,20 +347,38 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 )
                 + 1
             )
-            print("minGhostDistanceCurr", minGhostDistanceCurr)
+            features[GHOST]["distanceToGhost"] = (
+                self.width * self.height - minGhostDistanceCurr
+            )
+
+        # get previous enemies
+        enemiesPrev = [
+            gameState.getAgentState(opponent)
+            for opponent in self.getOpponents(gameState)
+        ]
+        ghostPrev = [
+            a for a in enemiesPrev if not a.isPacman and a.getPosition() != None
+        ]
         if len(ghostPrev) > 0:
             minGhostDistancePrev = (
                 min([self.getMazeDistance(prevPos, a.getPosition()) for a in ghostPrev])
                 + 1
             )
-            print("minGhostDistancePrev", minGhostDistancePrev)
 
-        features[GHOST]["distanceToGhost"] = 0.0
+        # features[GHOST]["ghostCloser"] = 0.0
+        # if (
+        #     len(ghostPrev)
+        #     and len(ghostsCurr)
+        #     and minGhostDistanceCurr - minGhostDistancePrev > 2
+        # ):
+        #     print("minGhostDistanceCurr", minGhostDistanceCurr)
+        #     print("minGhostDistancePrev", minGhostDistancePrev)
+        #     minGhostDistanceCurr = 1
+        #     print("minGhostDistanceCurrRevised", minGhostDistanceCurr)
 
-        if len(ghostPrev) and len(ghostsCurr):
-            if minGhostDistanceCurr < minGhostDistancePrev:
-                print("closer to ghost")
-                features[GHOST]["distanceToGhost"] = 1.0
+        # if len(ghostPrev) and len(ghostsCurr):
+        #     if minGhostDistanceCurr < minGhostDistancePrev:
+        #         features[GHOST]["ghostCloser"] = 1.0
 
         #     features[GHOST]["distanceToGhost"] = minGhostDistance / (
         #         self.width * self.height
@@ -478,16 +504,25 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 )
                 + 1
             )
+        if len(ghostsCurr) > 0 and len(ghostsPrev) > 0:
+            if minGhostDistanceCurr - minGhostDistancePrev > 2:
+                # print("minGhostDistanceCurr", minGhostDistanceCurr)
+                # print("minGhostDistancePrev", minGhostDistancePrev)
+                minGhostDistanceCurr = 1
+                # print("minGhostDistanceCurrRevised", minGhostDistanceCurr)
         if len(ghostsPrev) > 0 and len(ghostsCurr) > 0:
             if minGhostDistanceCurr < minGhostDistancePrev:
                 # TODO never happening!
-                reward -= -0.5
+                reward -= 0.08
+        if len(ghostsPrev) and minGhostDistancePrev < 3:
+            reward -= 0.05
 
         # Negative reward for getting eaten
         if self.getMazeDistance(currentPos, prevPos) > 2:
+            self.deaths += 1
             print("blarg?")
-            reward -= 1
-        print("ghost reward", reward)
+            reward -= 0.5
+        # print("ghost reward", reward)
         return reward
 
     def getGeneralReward(self, prevState, prev_action, currentState):
@@ -549,6 +584,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         currentMinDistance = min(
             self.getMazeDistance(currentPos, food) for food in currentFood.asList()
         )
+
         if currentMinDistance < prevMinDistance:
             reward += 0.01
 
@@ -593,7 +629,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                     noisyDistance = currentState.getAgentDistances()[enemyIndex]
                     noisies.append(noisyDistance)
                 if min(noisies) - 5 > minFoodDistance and reward == 0.4:
-                    print("near pellets", reward)
+                    # print("near pellets", reward)
                     reward += 0.6
         return reward
 
@@ -663,7 +699,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         return bordersMinusWalls
 
     def final(self, gameState):
-        print("Storing weights as game is over.")
+        print("Storing weights for game over.")
         self.storeWeights()
 
 
