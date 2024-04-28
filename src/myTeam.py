@@ -37,14 +37,15 @@ TRAINING_WEIGHT_PATH = "training_weights.json"
 PELLET = "pellets"
 GHOST = "ghosts"
 GENERAL = "general"
-OFFENSE_FEATURE_SECTIONS = [PELLET, GHOST, GENERAL]
+NEAR_PELLETS = "near_pellets"
+OFFENSE_FEATURE_SECTIONS = [PELLET, GHOST, GENERAL, NEAR_PELLETS]
 OFFENSE_FEATURES_GHOST = ["distanceToGhost"]
 OFFENSE_PELLET_FEATURES = [
     "gotCloserToFood",
     "pelletEaten",
 ]
+OFFENSE_NEAR_PELLET_FEATURES = ["closerToNearFood", "safeClosePellet"]
 OFFENSE_GENERAL_FEATURES = [
-    # "numberPelletsCarried",
     "closerToHome",
 ]
 # OFFENSE_FEATURES_TODO = [
@@ -232,6 +233,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         self.prevAction = action
         self.prevState = gameState
         self.numOfMoves += 1
+        print("move no: ", self.numOfMoves)
 
         return action
 
@@ -266,7 +268,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         Computes a linear combination of features and feature weights
         """
         features = self.getFeatures(gameState, action)[featureKey]
+        # print("features", features)
         weights = self.getWeights(gameState, action)[featureKey]
+        # print("weights", weights)
         return features * weights
 
     # MARK: GETFEATURES
@@ -288,6 +292,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         prevFoodList = prevFood.asList()
         prevPos = gameState.getAgentState(self.index).getPosition()
         nextPos = successor.getAgentState(self.index).getPosition()
+
         # features[PELLET]["gotCloserToFood"]
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minFoodDistance = min(
@@ -302,6 +307,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 features[PELLET]["gotCloserToFood"] = 1.0
             else:
                 features[PELLET]["gotCloserToFood"] = 0.0
+
         # features[PELLET]["pelletEaten"]
         if prevFood.count() > food.count():
             features[PELLET]["pelletEaten"] = 1.0
@@ -310,22 +316,71 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # MARK: ghost features
         # features[GHOST]["distanceToGhost"]
-        enemies = [
+
+        enemiesPrev = [
+            gameState.getAgentState(opponent)
+            for opponent in self.getOpponents(gameState)
+        ]
+        enemiesCurr = [
             successor.getAgentState(opponent)
             for opponent in self.getOpponents(successor)
         ]
-        ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
-        if len(ghosts) > 0:
-            minGhostDistance = (
-                min([self.getMazeDistance(nextPos, a.getPosition()) for a in ghosts])
+
+        ghostsCurr = [
+            a for a in enemiesCurr if not a.isPacman and a.getPosition() != None
+        ]
+        ghostPrev = [
+            a for a in enemiesPrev if not a.isPacman and a.getPosition() != None
+        ]
+        if len(ghostsCurr) > 0:
+            minGhostDistanceCurr = (
+                min(
+                    [self.getMazeDistance(nextPos, a.getPosition()) for a in ghostsCurr]
+                )
                 + 1
             )
-            features[GHOST]["distanceToGhost"] = minGhostDistance / (
-                self.width * self.height
+            print("minGhostDistanceCurr", minGhostDistanceCurr)
+        if len(ghostPrev) > 0:
+            minGhostDistancePrev = (
+                min([self.getMazeDistance(prevPos, a.getPosition()) for a in ghostPrev])
+                + 1
             )
-        else:
-            features[GHOST]["distanceToGhost"] = 0.0
+            print("minGhostDistancePrev", minGhostDistancePrev)
 
+        features[GHOST]["distanceToGhost"] = 0.0
+
+        if len(ghostPrev) and len(ghostsCurr):
+            if minGhostDistanceCurr < minGhostDistancePrev:
+                print("closer to ghost")
+                features[GHOST]["distanceToGhost"] = 1.0
+
+        #     features[GHOST]["distanceToGhost"] = minGhostDistance / (
+        #         self.width * self.height
+        #     )
+        # else:
+        #     features[GHOST]["distanceToGhost"] = 0.0
+
+        # features[NEAR_PELLETS]["safeClosePellet"]
+        noisies = []
+        for enemyIndex in self.getOpponents(gameState):
+            noisyDistance = gameState.getAgentDistances()[enemyIndex]
+            noisies.append(noisyDistance)
+        features[NEAR_PELLETS]["safeClosePellet"] = 0.0
+        for enemy in enemiesCurr:
+            if not enemy.isPacman and enemy.getPosition() == None:
+                noisies = []
+                for enemyIndex in self.getOpponents(gameState):
+                    noisyDistance = successor.getAgentDistances()[enemyIndex]
+                    noisies.append(noisyDistance)
+                if min(noisies) - 6 > minFoodDistance:
+                    features[NEAR_PELLETS]["safeClosePellet"] = 1.0
+        # features[NEAR_PELLETS]["closerToNearFood"]
+        if len(prevFoodList) > 0 and len(foodList) > 0:
+            if minPrevFoodDistance > minFoodDistance and minFoodDistance < 7:
+                features[NEAR_PELLETS]["closerToNearFood"] = 1.0
+            else:
+                features[NEAR_PELLETS]["closerToNearFood"] = 0.0
+        # MARK: general features
         # GENERAL FEATURES
         # features[GENERAL]["closerToHome"]
         minBorderDistancePrev = min(
@@ -371,10 +426,12 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         pelletReward = self.getPelletReward(prevState, prev_action, currentState)
         ghostReward = self.getGhostReward(prevState, prev_action, currentState)
         generalReward = self.getGeneralReward(prevState, prev_action, currentState)
+        nearReward = self.getNearPelletReward(prevState, prev_action, currentState)
         return {
             PELLET: pelletReward,
             GHOST: ghostReward,
             GENERAL: generalReward,
+            NEAR_PELLETS: nearReward,
         }
 
     def getGhostReward(self, prevState, prev_action, currentState):
@@ -389,16 +446,49 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         prevPos = prevState.getAgentState(self.index).getPosition()
         currentPos = currentState.getAgentState(self.index).getPosition()
 
+        enemiesPrev = [
+            prevState.getAgentState(opponent)
+            for opponent in self.getOpponents(prevState)
+        ]
+        enemiesCurr = [
+            currentState.getAgentState(opponent)
+            for opponent in self.getOpponents(currentState)
+        ]
+
+        ghostsCurr = [
+            a for a in enemiesCurr if not a.isPacman and a.getPosition() != None
+        ]
+        ghostsPrev = [
+            a for a in enemiesPrev if not a.isPacman and a.getPosition() != None
+        ]
+        if len(ghostsCurr) > 0:
+            minGhostDistanceCurr = (
+                min(
+                    [
+                        self.getMazeDistance(currentPos, a.getPosition())
+                        for a in ghostsCurr
+                    ]
+                )
+                + 1
+            )
+        if len(ghostsPrev) > 0:
+            minGhostDistancePrev = (
+                min(
+                    [self.getMazeDistance(prevPos, a.getPosition()) for a in ghostsPrev]
+                )
+                + 1
+            )
+        if len(ghostsPrev) > 0 and len(ghostsCurr) > 0:
+            if minGhostDistanceCurr < minGhostDistancePrev:
+                # TODO never happening!
+                reward -= -0.5
+
         # Negative reward for getting eaten
         if self.getMazeDistance(currentPos, prevPos) > 2:
-            reward -= 0.5
-
-        # TODO negative reward for getting closer to ghosts? Negative reward for losing whole game?
-
+            print("blarg?")
+            reward -= 1
+        print("ghost reward", reward)
         return reward
-
-        # TODO TERMINAL rewards for winning or losing?
-        # technically not using prev_action, is it even necessary as a parameter?
 
     def getGeneralReward(self, prevState, prev_action, currentState):
         """
@@ -425,11 +515,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             reward += 0.1
 
         # Reward if pellets returned to base
-        print("score", currentState.getScore())
+        # print("score", currentState.getScore())
         if self.red and currentState.getScore() > prevState.getScore():
-            reward += 0.9
+            reward += 0.3
         if not self.red and prevState.getScore() > currentState.getScore():
-            reward += 0.9
+            reward += 0.3
         return reward
 
     def getPelletReward(self, prevState, prev_action, currentState):
@@ -441,7 +531,6 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         that it was reset to the starting position after running into a defending ghost.
         """
         reward = 0
-
         # get positions & pellet info
         prevPos = prevState.getAgentState(self.index).getPosition()
         currentPos = currentState.getAgentState(self.index).getPosition()
@@ -466,6 +555,48 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         # TODO terminal reward for winning?
         return reward
 
+    # MARK: near pellets
+
+    def getNearPelletReward(self, prevState, prev_action, currentState):
+        reward = 0
+        food = self.getFood(currentState)
+        foodList = food.asList()
+        prevFood = self.getFood(prevState)
+        prevFoodList = prevFood.asList()
+        prevPos = prevState.getAgentState(self.index).getPosition()
+        nextPos = currentState.getAgentState(self.index).getPosition()
+
+        # features[PELLET]["gotCloserToFood"]
+        if len(foodList) > 0:  # This should always be True,  but better safe than sorry
+            minFoodDistance = min(
+                [self.getMazeDistance(nextPos, food) for food in foodList]
+            )
+        if len(prevFoodList) > 0:
+            minPrevFoodDistance = min(
+                [self.getMazeDistance(prevPos, food) for food in prevFoodList]
+            )
+        if minFoodDistance > minPrevFoodDistance and minFoodDistance < 7:
+            reward += 0.4
+
+        noisies = []
+        for enemyIndex in self.getOpponents(currentState):
+            noisyDistance = currentState.getAgentDistances()[enemyIndex]
+            noisies.append(noisyDistance)
+        enemies = [
+            currentState.getAgentState(opponent)
+            for opponent in self.getOpponents(currentState)
+        ]
+        for enemy in enemies:
+            if not enemy.isPacman and enemy.getPosition() == None:
+                noisies = []
+                for enemyIndex in self.getOpponents(currentState):
+                    noisyDistance = currentState.getAgentDistances()[enemyIndex]
+                    noisies.append(noisyDistance)
+                if min(noisies) - 5 > minFoodDistance and reward == 0.4:
+                    print("near pellets", reward)
+                    reward += 0.6
+        return reward
+
     # MARK: WEIGHTS
 
     def getWeights(self, gameState, action):
@@ -481,6 +612,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             self.weights[GHOST][feature] = 0.0
         for feature in OFFENSE_GENERAL_FEATURES:
             self.weights[GENERAL][feature] = 0.0
+        for feature in OFFENSE_NEAR_PELLET_FEATURES:
+            self.weights[NEAR_PELLETS][feature] = 0.0
 
     def loadWeights(self):
         try:
@@ -498,12 +631,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
     def updateWeights(self, state, action, nextState, rewards):
         actions = nextState.getLegalActions(self.index)
         features = self.getFeatures(state, action)
-        print("features", features)
-        print("weights", self.weights)
+        # print("=====features======")
+        # print("features", features)
+        # print("=====weights======")
+        # print("weights", self.weights)
         for key in OFFENSE_FEATURE_SECTIONS:
-            print("key", key)
-            print("rewards", rewards)
-            values = [self.evaluate(nextState, action, key) for action in actions]
+            # print("key", key)
+            # print("rewards", rewards)
+            values = [self.evaluate(nextState, a, key) for a in actions]
             maxValue = max(values)
             difference = (rewards[key] + DISCOUNT_RATE * maxValue) - self.evaluate(
                 state, action, key
