@@ -41,7 +41,8 @@ PELLET = "pellets"
 GHOST = "ghosts"
 GENERAL = "general"
 SAFETY = "safety"
-OFFENSE_FEATURE_SECTIONS = [PELLET, GHOST, GENERAL, SAFETY]
+STOP = "stop"
+OFFENSE_FEATURE_SECTIONS = [PELLET, GHOST, GENERAL, SAFETY, STOP]
 OFFENSE_FEATURES_GHOST = ["distanceToGhost", "death"]
 OFFENSE_PELLET_FEATURES = [
     "gotCloserToFood",
@@ -51,11 +52,11 @@ DEFENSE_WEIGHTS_HUNT_FEATURES = ["gotCloserToInvader", "ateInvader"]
 DEFENSE_WEIGHTS_STAYDEF_FEATURES = ["onDefense", "leavingStart", "coveringGround"]
 OFFENSE_FEATURES_SAFETY = [
     "gotCloserToSafeFood",
-    "gotCloserToSuperSafeFood",
+    # "gotCloserToSuperSafeFood",
 ]
 OFFENSE_GENERAL_FEATURES = [
-    "numberPelletsCarried",
     "closerToHome",
+    # "numberPelletsCarried",
 ]
 # OFFENSE_FEATURES_TODO = [
 #     "successorScore",
@@ -366,15 +367,15 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         else:
             features[SAFETY]["gotCloserToSafeFood"] = 0.0
 
-        if (
-            closerToFood
-            and not ghostsVisible
-            and min(noisyReadings) - 6 > minFoodDistance
-        ):
-            features[SAFETY]["gotCloserToSuperSafeFood"] = 1.0
-            # print("gotCloserToSuperSafeFood")
-        else:
-            features[SAFETY]["gotCloserToSuperSafeFood"] = 0.0
+        # if (
+        #     closerToFood
+        #     and not ghostsVisible
+        #     and min(noisyReadings) - 6 > minFoodDistance
+        # ):
+        # features[SAFETY]["gotCloserToSuperSafeFood"] = 1.0
+        # print("gotCloserToSuperSafeFood")
+        # else:
+        #     features[SAFETY]["gotCloserToSuperSafeFood"] = 0.0
 
         # features[PELLET]["pelletEaten"]
         if prevFood.count() > food.count():
@@ -400,17 +401,19 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # WORKS IN PROGRESS
         # features["numberPelletsCarried"]
-        features[GENERAL]["numberPelletsCarried"] = (
-            successor.getAgentState(self.index).numCarrying / self.totalFood
-        )
+        # features[GENERAL]["numberPelletsCarried"] = (
+        #     successor.getAgentState(self.index).numCarrying / self.totalFood
+        # )
         # print("numberPelletsCarried", features[GENERAL]["numberPelletsCarried"])
 
         # disabled features from BetterBaseline:
         # features["successorScore"] = self.getScore(successor)  # -len(foodList)
         # features["distanceToFood"] = minFoodDistance
         # Can't stop won't stop
-        # if action == Directions.STOP:
-        #     features["stop"] = 1
+        if action == Directions.STOP:
+            features[STOP]["stop"] = 1.0
+        else:
+            features[STOP]["stop"] = 0.0
         # Safety in numbers! ...even if that number is 2
         # friends = [
         #     successor.getAgentState(friend) for friend in self.getTeam(successor)
@@ -429,11 +432,13 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         ghostReward = self.getGhostReward(prevState, prev_action, currentState)
         generalReward = self.getGeneralReward(prevState, prev_action, currentState)
         safetyReward = self.getSafetyReward(prevState, prev_action, currentState)
+        stopReward = self.getStopReward(prevState, prev_action, currentState)
         return {
             PELLET: pelletReward,
             GHOST: ghostReward,
             GENERAL: generalReward,
             SAFETY: safetyReward,
+            STOP: stopReward,
         }
 
     def getGhostReward(self, prevState, prev_action, currentState):
@@ -476,8 +481,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         numCarrying = currentState.getAgentState(self.index).numCarrying
         numCarryingPrev = prevState.getAgentState(self.index).numCarrying
         carrying = numCarrying > 0
-        if numCarrying > numCarryingPrev:
-            reward += 0.02
+        # if numCarrying > numCarryingPrev:
+        #     reward += 0.02
 
         # Reward for getting closer to home (if carrying)
         minBorderPrev = min(
@@ -496,6 +501,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         if not self.red and prevState.getScore() > currentState.getScore():
             reward += 0.3
         return reward
+
+    def getStopReward(self, prevState, prev_action, currentState):
+        if prev_action == Directions.STOP:
+            return -0.03
+        return 0
 
     def getPelletReward(self, prevState, prev_action, currentState):
         """
@@ -615,15 +625,15 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
         # Reward for getting closer to safe pellet
         if closerToFood and not ghostsVisible:
-            reward += 0.05
+            reward += 0.03
 
         # reward for getting closer to super safe pellet
-        if (
-            closerToFood
-            and not ghostsVisible
-            and min(noisyReadings) - 3 > currentMinDistance
-        ):
-            reward += 0.1
+        # if (
+        #     closerToFood
+        #     and not ghostsVisible
+        #     and min(noisyReadings) - 3 > currentMinDistance
+        # ):
+        #     reward += 0.1
 
         # TODO terminal reward for winning?
         return reward
@@ -693,8 +703,9 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         return bordersMinusWalls
 
     def final(self, gameState):
-        # print("Storing weights as game is over.")
-        self.storeWeights()
+        if TRAINING:
+            # print("Storing weights as game is over.")
+            self.storeWeights()
 
 
 class DefensiveReflexAgent(ReflexCaptureAgent):
@@ -963,7 +974,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
     def final(self, gameState):
         # print("Storing weights as game is over.")
-        self.storeWeights()
+        if TRAINING:
+            self.storeWeights()
 
 
 class DummyAgent(CaptureAgent):
