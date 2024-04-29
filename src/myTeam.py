@@ -45,7 +45,7 @@ OFFENSE_WEIGHTS_PELLET_FEATURES = [
     "pelletEaten",
 ]
 DEFENSE_WEIGHTS_HUNT_FEATURES = ["gotCloserToInvader", "ateInvader"]
-DEFENSE_WEIGHTS_STAYDEF_FEATURES = ["onDefense"]
+DEFENSE_WEIGHTS_STAYDEF_FEATURES = ["onDefense", "leavingStart", "coveringGround"]
 
 # OFFENSE_WEIGHTS_OTHER_FEATURES = [
 #     "successorScore",
@@ -64,7 +64,9 @@ OFFENSE_WEIGHTS_ALL_FEATURES = [
 DEFENSE_WEIGHTS_ALL_FEATURES = [
     "gotCloserToInvader", 
     "ateInvader",
-    "onDefense"
+    "onDefense",
+    "leavingStart",
+    "coveringGround"
     ]
 
 # Any other constants used for your training (learning rate, discount, etc.)
@@ -489,6 +491,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         else:
             self.initializeWeights()
 
+        self.coverageMap = util.Counter()
+
     def chooseAction(self, gameState):
         """
         Picks among the actions with the highest Q(s,a).
@@ -540,6 +544,12 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         else:
             action = random.choice(bestActions)
 
+        #update coverage map
+        newPos = gameState.getAgentPosition(self.index)
+        self.coverageMap[newPos] = 0
+        for pos, lastVisit in self.coverageMap.items():
+            self.coverageMap[pos] = lastVisit + 1
+
         # store action and state for next weight update
         self.prevAction = action
         self.prevState = gameState
@@ -575,18 +585,29 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             prevClosestInvaderDistance = min(prevDists)
 
         if len(invaders) > 0 and len(prevInvaders) > 0 and closestInvaderDistance < prevClosestInvaderDistance:
-            reward = 0.01
+            reward += 0.09
 
-        if len(invaders) > 0:
-            if closestInvaderDistance == 0:
-                reward = 0.1
+        if len(prevInvaders) > 0:
+            if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
+                reward += 0.9
+            #if power pellet invert reward TODO TODO
         return reward
     
     def getDefendingReward(self, prevState, prev_action, currentState):
-        reward = 0.001
+        reward = 0
+        myPos = currentState.getAgentState(self.index).getPosition()
+        prevPos = prevState.getAgentState(self.index).getPosition()
+        myPosAsFloat = (float(myPos[0]), float(myPos[1])) 
         if currentState.getAgentState(self.index).isPacman:
-            reward = 0
+            reward += -0.012
+        if self.getMazeDistance(myPos, self.start) > self.getMazeDistance(prevPos, self.start) and self.numOfMoves < 10:
+            reward += 0.001
+        if myPos not in self.coverageMap.keys():
+            reward += 0.01
+        elif self.coverageMap[myPos] >= 12:
+            reward += 0.009
         return reward
+    
 
     def getFeatures(self, gameState, action):
         features = util.Counter()
@@ -597,9 +618,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         prevPos = gameState.getAgentState(self.index).getPosition()
 
         # Computes whether we're on defense (1) or offense (0)
-        features["onDefense"] = 1
+        features["onDefense"] = 1.0
         if myState.isPacman:
-            features["onDefense"] = 0
+            features["onDefense"] = 0.0
+
+        features["leavingStart"] = 0.0
+        if self.getMazeDistance(myPos, self.start) > self.getMazeDistance(prevPos, self.start) and self.numOfMoves < 10:
+            features["leavingStart"] = 1.0
 
         # Computes distance to invaders we can see
         enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
@@ -618,14 +643,18 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         else:
             features["gotCloserToInvader"] = 0.0
 
-        if len(invaders) > 0:
-            if closestInvaderDistance == 0:
+
+        features["ateInvader"] = 0.0
+        if len(prevInvaders) > 0:
+            if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
                 features["ateInvader"] = 1.0
+
+        if myPos not in self.coverageMap.keys() or self.coverageMap[myPos] >= 6:
+            features["coveringGround"] = 1.0
         else:
-            features["ateInvader"] = 0.0
+            features["coveringGround"] = 0.0
+
         
-
-
         
 
         # if action == Directions.STOP:
