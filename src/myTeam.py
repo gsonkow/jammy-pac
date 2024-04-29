@@ -44,6 +44,8 @@ OFFENSE_PELLET_FEATURES = [
     "gotCloserToFood",
     "pelletEaten",
 ]
+DEFENSE_WEIGHTS_HUNT_FEATURES = ["gotCloserToInvader", "ateInvader"]
+DEFENSE_WEIGHTS_STAYDEF_FEATURES = ["onDefense", "leavingStart", "coveringGround"]
 OFFENSE_FEATURES_SAFETY = [
     "gotCloserToSafeFood",
     "gotCloserToSuperSafeFood",
@@ -61,6 +63,21 @@ OFFENSE_GENERAL_FEATURES = [
 #     "stop",
 #     "separationAnxiety",
 # ]
+OFFENSE_WEIGHTS_ALL_FEATURES = [
+    "gotCloserToFood",
+    "pelletEaten",
+    "distanceToGhost",
+]
+DEFENSE_WEIGHTS_ALL_FEATURES = [
+    "gotCloserToInvader", 
+    "ateInvader",
+    "onDefense",
+    "leavingStart",
+    "coveringGround"
+    ]
+
+# Any other constants used for your training (learning rate, discount, etc.)
+# should be specified here
 DISCOUNT_RATE = 0.9
 LEARNING_RATE = 0.2
 EXPLORATION_RATE = 0.1
@@ -685,44 +702,249 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
     such an agent.
     """
 
+    def registerInitialState(self, gameState):
+
+        # built in stuff
+        self.start = gameState.getAgentPosition(self.index)
+        CaptureAgent.registerInitialState(self, gameState)
+
+        # record keeping variables, load weights
+        self.prevAction = None
+        self.prevState = gameState
+        self.numOfMoves = 0
+        if exists(TRAINING_WEIGHT_PATH):
+            self.loadWeights()
+        else:
+            self.initializeWeights()
+
+        self.coverageMap = util.Counter()
+
+    def chooseAction(self, gameState):
+        """
+        Picks among the actions with the highest Q(s,a).
+        """
+
+        # get reward for previous action and update weights
+        if TRAINING and self.numOfMoves > 0:
+            huntReward = self.getHuntReward(
+                self.prevState, self.prevAction, gameState
+            )
+            onDefReward = self.getDefendingReward(
+                self.prevState, self.prevAction, gameState
+            )
+            rewards = {"huntReward": huntReward, "onDefReward": onDefReward}
+
+            self.updateWeights(self.prevState, self.prevAction, gameState, rewards)
+
+            # store weights into JSON file
+            if gameState.isOver():
+                self.storeWeights()
+
+        # get best action
+        actions = gameState.getLegalActions(self.index)
+        # You can profile your evaluation time by uncommenting these lines
+        # start = time.time()
+        values = [
+            self.evaluate(gameState, a, DEFENSE_WEIGHTS_ALL_FEATURES) for a in actions
+        ]
+        # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
+        maxValue = max(values)
+        bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+
+        # WEIRD BUILT IN LOGIC, Forney says not necessary for now
+        # foodLeft = len(self.getFood(gameState).asList())
+        # if foodLeft <= 2:
+        #     bestDist = 9999
+        #     for action in actions:
+        #         successor = self.getSuccessor(gameState, action)
+        #         pos2 = successor.getAgentPosition(self.index)
+        #         dist = self.getMazeDistance(self.start, pos2)
+        #         if dist < bestDist:
+        #             bestAction = action
+        #             bestDist = dist
+        #     return bestAction
+
+        # get our action
+        if TRAINING and random.random() < EXPLORATION_RATE:
+            action = random.choice(actions)
+        else:
+            action = random.choice(bestActions)
+
+        #update coverage map
+        newPos = gameState.getAgentPosition(self.index)
+        self.coverageMap[newPos] = 0
+        for pos, lastVisit in self.coverageMap.items():
+            self.coverageMap[pos] = lastVisit + 1
+
+        # store action and state for next weight update
+        self.prevAction = action
+        self.prevState = gameState
+        self.numOfMoves += 1
+        return action
+    
+    def evaluate(self, gameState, action, set):
+        """
+        Computes a linear combination of features and feature weights
+        """
+        features = self.getFeatures(gameState, action)
+        weights = self.getWeights(gameState, action)
+        total = 0
+        for key in set:
+            total += features[key] * weights[key]
+        return total
+
+    def getHuntReward(self, prevState, prev_action, currentState):
+        reward = 0
+        myPos = currentState.getAgentState(self.index).getPosition()
+        prevPos = prevState.getAgentState(self.index).getPosition()
+
+        # Computes distance to invaders we can see
+        enemies = [currentState.getAgentState(i) for i in self.getOpponents(currentState)]
+        invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
+        prevEnemies = [prevState.getAgentState(i) for i in self.getOpponents(prevState)]
+        prevInvaders = [a for a in prevEnemies if a.isPacman and a.getPosition() != None]
+        if len(invaders) > 0:
+            dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
+            closestInvaderDistance = min(dists)
+        if len(prevInvaders) > 0:
+            prevDists = [self.getMazeDistance(prevPos, a.getPosition()) for a in prevInvaders]
+            prevClosestInvaderDistance = min(prevDists)
+
+        if len(invaders) > 0 and len(prevInvaders) > 0 and closestInvaderDistance < prevClosestInvaderDistance:
+            reward += 0.09
+
+        if len(prevInvaders) > 0:
+            if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
+                reward += 0.9
+            #if power pellet invert reward TODO TODO
+        return reward
+    
+    def getDefendingReward(self, prevState, prev_action, currentState):
+        reward = 0
+        myPos = currentState.getAgentState(self.index).getPosition()
+        prevPos = prevState.getAgentState(self.index).getPosition()
+        myPosAsFloat = (float(myPos[0]), float(myPos[1])) 
+        if currentState.getAgentState(self.index).isPacman:
+            reward += -0.012
+        if self.getMazeDistance(myPos, self.start) > self.getMazeDistance(prevPos, self.start) and self.numOfMoves < 10:
+            reward += 0.001
+        if myPos not in self.coverageMap.keys():
+            reward += 0.01
+        elif self.coverageMap[myPos] >= 12:
+            reward += 0.009
+        return reward
+    
+
     def getFeatures(self, gameState, action):
         features = util.Counter()
         successor = self.getSuccessor(gameState, action)
 
         myState = successor.getAgentState(self.index)
         myPos = myState.getPosition()
+        prevPos = gameState.getAgentState(self.index).getPosition()
 
         # Computes whether we're on defense (1) or offense (0)
-        features["onDefense"] = 1
+        features["onDefense"] = 1.0
         if myState.isPacman:
-            features["onDefense"] = 0
+            features["onDefense"] = 0.0
+
+        features["leavingStart"] = 0.0
+        if self.getMazeDistance(myPos, self.start) > self.getMazeDistance(prevPos, self.start) and self.numOfMoves < 10:
+            features["leavingStart"] = 1.0
 
         # Computes distance to invaders we can see
         enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
         invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
-        features["numInvaders"] = len(invaders)
+        prevEnemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
+        prevInvaders = [a for a in prevEnemies if a.isPacman and a.getPosition() != None]
         if len(invaders) > 0:
             dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
-            features["invaderDistance"] = min(dists)
+            closestInvaderDistance = min(dists)
+        if len(prevInvaders) > 0:
+            prevDists = [self.getMazeDistance(prevPos, a.getPosition()) for a in prevInvaders]
+            prevClosestInvaderDistance = min(prevDists)
 
-        if action == Directions.STOP:
-            features["stop"] = 1
-        rev = Directions.REVERSE[
-            gameState.getAgentState(self.index).configuration.direction
-        ]
-        if action == rev:
-            features["reverse"] = 1
+        if len(invaders) > 0 and len(prevInvaders) > 0 and closestInvaderDistance < prevClosestInvaderDistance:
+            features["gotCloserToInvader"] = 1.0
+        else:
+            features["gotCloserToInvader"] = 0.0
+
+
+        features["ateInvader"] = 0.0
+        if len(prevInvaders) > 0:
+            if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
+                features["ateInvader"] = 1.0
+
+        if myPos not in self.coverageMap.keys() or self.coverageMap[myPos] >= 6:
+            features["coveringGround"] = 1.0
+        else:
+            features["coveringGround"] = 0.0
+
+        
+        
+
+        # if action == Directions.STOP:
+        #     features["stop"] = 1
+        # rev = Directions.REVERSE[
+        #     gameState.getAgentState(self.index).configuration.direction
+        # ]
+        # if action == rev:
+        #     features["reverse"] = 1
 
         return features
 
     def getWeights(self, gameState, action):
-        return {
-            "numInvaders": -1000,
-            "onDefense": 100,
-            "invaderDistance": -10,
-            "stop": -100,
-            "reverse": -2,
-        }
+        return self.weights
+    
+    def updateWeights(self, state, action, nextState, rewards):
+        actions = nextState.getLegalActions(self.index)
+        features = self.getFeatures(state, action)
+
+        huntValues = [
+            self.evaluate(nextState, a, DEFENSE_WEIGHTS_HUNT_FEATURES)
+            for a in actions
+        ]
+        maxHuntValue = max(huntValues)
+
+        onDefValues = [
+            self.evaluate(nextState, a, DEFENSE_WEIGHTS_STAYDEF_FEATURES)
+            for a in actions
+        ]
+        maxOnDefValue = max(onDefValues)
+
+        huntDifference = (
+            rewards["huntReward"] + DISCOUNT_RATE * maxHuntValue
+        ) - self.evaluate(state, action, DEFENSE_WEIGHTS_HUNT_FEATURES)
+
+        for feature in DEFENSE_WEIGHTS_HUNT_FEATURES:
+            self.weights[feature] += (
+                LEARNING_RATE * huntDifference * features[feature]
+            )
+
+        onDefDifference = (
+            rewards["onDefReward"] + DISCOUNT_RATE * maxOnDefValue
+        ) - self. evaluate(state, action, DEFENSE_WEIGHTS_STAYDEF_FEATURES)
+
+        for feature in DEFENSE_WEIGHTS_STAYDEF_FEATURES:
+            self.weights[feature] += LEARNING_RATE * onDefDifference * features[feature]
+    
+    #TODO TODO TODO change paths to new ones TODO TODO TODO
+    def storeWeights(self):
+        weights_json = json.dumps(self.weights, indent=4)
+        with open(TRAINING_WEIGHT_PATH, "w") as outfile:
+            outfile.write(weights_json)
+
+    def loadWeights(self):
+        try:
+            with open(TRAINING_WEIGHT_PATH, "r") as file:
+                self.weights = json.load(file)
+        except IOError:
+            print("Weights file not found.")
+
+    def initializeWeights(self):
+        self.weights = {}
+        for key in DEFENSE_WEIGHTS_ALL_FEATURES:
+            self.weights[key] = 0.0
 
 
 class DummyAgent(CaptureAgent):
