@@ -223,6 +223,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
             self.updateWeights(self.prevState, self.prevAction, gameState, rewards)
 
         # GET BEST ACTION
+
         actions = gameState.getLegalActions(self.index)
         # You can profile your evaluation time by uncommenting these lines
         # start = time.time()
