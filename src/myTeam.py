@@ -48,8 +48,8 @@ OFFENSE_PELLET_FEATURES = [
     "gotCloserToFood",
     "pelletEaten",
 ]
-DEFENSE_WEIGHTS_HUNT_FEATURES = ["gotCloserToInvader", "ateInvader"]
-DEFENSE_WEIGHTS_STAYDEF_FEATURES = ["onDefense", "leavingStart", "coveringGround"]
+DEFENSE_WEIGHTS_HUNT_FEATURES = ["gotCloserToInvader", "ateInvader", "enemyPowered"]
+DEFENSE_WEIGHTS_STAYDEF_FEATURES = ["onDefense", "leavingStart", "coveringGround", "stopped"]
 OFFENSE_FEATURES_SAFETY = [
     "gotCloserToSafeFood",
     # "gotCloserToSuperSafeFood",
@@ -75,9 +75,11 @@ OFFENSE_WEIGHTS_ALL_FEATURES = [
 DEFENSE_WEIGHTS_ALL_FEATURES = [
     "gotCloserToInvader",
     "ateInvader",
+    "enemyPowered",
     "onDefense",
     "leavingStart",
     "coveringGround",
+    "stopped",
 ]
 
 # Any other constants used for your training (learning rate, discount, etc.)
@@ -732,6 +734,12 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             self.initializeWeights()
 
         self.coverageMap = util.Counter()
+        self.enemyPowered = 0
+        if(self.red):
+            self.capsuleList = gameState.getRedCapsules()
+        else:
+            self.capsuleList = gameState.getBlueCapsules()
+        
 
     def chooseAction(self, gameState):
         """
@@ -784,6 +792,26 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         for pos, lastVisit in self.coverageMap.items():
             self.coverageMap[pos] = lastVisit + 1
 
+        # check power pellet
+        if self.enemyPowered > 0:
+            self.enemyPowered -= 1
+
+        if(self.red):
+            newCapsuleList = gameState.getRedCapsules()
+        else:
+            newCapsuleList = gameState.getBlueCapsules()
+
+        if len(newCapsuleList) < len(self.capsuleList):
+            self.enemyPowered = 40
+
+        if(self.red):
+            self.capsuleList = gameState.getRedCapsules()
+        else:
+            self.capsuleList = gameState.getBlueCapsules()
+
+        print(self.enemyPowered)
+        
+
         # store action and state for next weight update
         self.prevAction = action
         self.prevState = gameState
@@ -805,6 +833,8 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         reward = 0
         myPos = currentState.getAgentState(self.index).getPosition()
         prevPos = prevState.getAgentState(self.index).getPosition()
+
+        
 
         # Computes distance to invaders we can see
         enemies = [
@@ -829,27 +859,36 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             and len(prevInvaders) > 0
             and closestInvaderDistance < prevClosestInvaderDistance
         ):
-            reward += 0.09
+            if closestInvaderDistance <= 3 and self.enemyPowered > 0:
+                reward -= 0.02
+            else:
+                reward += 0.09
 
-        if len(prevInvaders) > 0:
+        if len(prevInvaders) > 0 and self.enemyPowered == 0:
             if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
-                reward += 0.9
-            # if power pellet invert reward TODO TODO
+                    reward += 0.9
+
+        if self.enemyPowered > 0 and self.getMazeDistance(myPos, prevPos) > 2:
+            reward += -1
+
         return reward
 
     def getDefendingReward(self, prevState, prev_action, currentState):
         reward = 0
         myPos = currentState.getAgentState(self.index).getPosition()
         prevPos = prevState.getAgentState(self.index).getPosition()
-        myPosAsFloat = (float(myPos[0]), float(myPos[1]))
         if currentState.getAgentState(self.index).isPacman:
             reward += -0.012
         if (
             self.getMazeDistance(myPos, self.start)
             > self.getMazeDistance(prevPos, self.start)
-            and self.numOfMoves < 10
+            and self.numOfMoves < 30
         ):
             reward += 0.001
+            if prev_action == Directions.STOP:
+                reward += -0.03
+        elif prev_action == Directions.STOP:
+            reward += -0.005
         if myPos not in self.coverageMap.keys():
             reward += 0.01
         elif self.coverageMap[myPos] >= 12:
@@ -876,6 +915,16 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             and self.numOfMoves < 10
         ):
             features["leavingStart"] = 1.0
+
+        if self.enemyPowered > 0:
+            features["enemyPowered"] = 1.0
+        else:
+            features["enemyPowered"] = 0.0
+
+        if action == Directions.STOP:
+            features["stopped"] = 1.0
+        else:
+            features["stopped"] = 0.0
 
         # Computes distance to invaders we can see
         enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
@@ -954,7 +1003,6 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         for feature in DEFENSE_WEIGHTS_STAYDEF_FEATURES:
             self.weights[feature] += LEARNING_RATE * onDefDifference * features[feature]
 
-    # TODO TODO TODO change paths to new ones TODO TODO TODO
     def storeWeights(self):
         weights_json = json.dumps(self.weights, indent=4)
         with open(DEFENSE_WEIGHT_PATH, "w") as outfile:
