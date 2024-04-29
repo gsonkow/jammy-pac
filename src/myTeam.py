@@ -34,6 +34,9 @@ TRAINING = True
 # games. Should be loaded at the start of any game, training or otherwise
 # [!] Replace MY_TEAM with your team name
 TRAINING_WEIGHT_PATH = "training_weights.json"
+OFFENSE_WEIGHT_PATH = "offense_weights.json"
+DEFENSE_WEIGHT_PATH = "defense_weights.json"
+
 PELLET = "pellets"
 GHOST = "ghosts"
 GENERAL = "general"
@@ -69,12 +72,12 @@ OFFENSE_WEIGHTS_ALL_FEATURES = [
     "distanceToGhost",
 ]
 DEFENSE_WEIGHTS_ALL_FEATURES = [
-    "gotCloserToInvader", 
+    "gotCloserToInvader",
     "ateInvader",
     "onDefense",
     "leavingStart",
-    "coveringGround"
-    ]
+    "coveringGround",
+]
 
 # Any other constants used for your training (learning rate, discount, etc.)
 # should be specified here
@@ -221,11 +224,11 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
         self.width = gameState.data.layout.width
         self.height = gameState.data.layout.height
         self.homeBorders = self.getHomeBorders(gameState)
-        if exists(TRAINING_WEIGHT_PATH) and not FRESH_START:
-            # print("Loading weights from file")
+        if exists(OFFENSE_WEIGHT_PATH) and not FRESH_START:
+            print("Loading weights from file")
             self.loadWeights()
         else:
-            # print("Initializing weights")
+            print("Initializing weights")
             self.initializeWeights()
 
     ###### MAIN METHODS ######
@@ -645,14 +648,14 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
 
     def loadWeights(self):
         try:
-            with open(TRAINING_WEIGHT_PATH, "r") as file:
+            with open(OFFENSE_WEIGHT_PATH, "r") as file:
                 self.weights = json.load(file)
         except IOError:
             print("Weights file not found.")
 
     def storeWeights(self):
         weights_json = json.dumps(self.weights, indent=4)
-        with open(TRAINING_WEIGHT_PATH, "w") as outfile:
+        with open(OFFENSE_WEIGHT_PATH, "w") as outfile:
             outfile.write(weights_json)
 
     # MARK: Update Weights
@@ -673,7 +676,7 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
                 self.weights[key][feature] += (
                     LEARNING_RATE * difference * features[key][feature]
                 )
-        self.storeWeights()
+        # self.storeWeights()
 
     # MARK: HELPERS
     def getHomeBorders(self, gameState):
@@ -712,7 +715,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         self.prevAction = None
         self.prevState = gameState
         self.numOfMoves = 0
-        if exists(TRAINING_WEIGHT_PATH):
+        if exists(DEFENSE_WEIGHT_PATH) and not FRESH_START:
             self.loadWeights()
         else:
             self.initializeWeights()
@@ -726,19 +729,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
         # get reward for previous action and update weights
         if TRAINING and self.numOfMoves > 0:
-            huntReward = self.getHuntReward(
-                self.prevState, self.prevAction, gameState
-            )
+            huntReward = self.getHuntReward(self.prevState, self.prevAction, gameState)
             onDefReward = self.getDefendingReward(
                 self.prevState, self.prevAction, gameState
             )
             rewards = {"huntReward": huntReward, "onDefReward": onDefReward}
 
             self.updateWeights(self.prevState, self.prevAction, gameState, rewards)
-
-            # store weights into JSON file
-            if gameState.isOver():
-                self.storeWeights()
 
         # get best action
         actions = gameState.getLegalActions(self.index)
@@ -770,7 +767,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         else:
             action = random.choice(bestActions)
 
-        #update coverage map
+        # update coverage map
         newPos = gameState.getAgentPosition(self.index)
         self.coverageMap[newPos] = 0
         for pos, lastVisit in self.coverageMap.items():
@@ -781,7 +778,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         self.prevState = gameState
         self.numOfMoves += 1
         return action
-    
+
     def evaluate(self, gameState, action, set):
         """
         Computes a linear combination of features and feature weights
@@ -799,41 +796,54 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         prevPos = prevState.getAgentState(self.index).getPosition()
 
         # Computes distance to invaders we can see
-        enemies = [currentState.getAgentState(i) for i in self.getOpponents(currentState)]
+        enemies = [
+            currentState.getAgentState(i) for i in self.getOpponents(currentState)
+        ]
         invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
         prevEnemies = [prevState.getAgentState(i) for i in self.getOpponents(prevState)]
-        prevInvaders = [a for a in prevEnemies if a.isPacman and a.getPosition() != None]
+        prevInvaders = [
+            a for a in prevEnemies if a.isPacman and a.getPosition() != None
+        ]
         if len(invaders) > 0:
             dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
             closestInvaderDistance = min(dists)
         if len(prevInvaders) > 0:
-            prevDists = [self.getMazeDistance(prevPos, a.getPosition()) for a in prevInvaders]
+            prevDists = [
+                self.getMazeDistance(prevPos, a.getPosition()) for a in prevInvaders
+            ]
             prevClosestInvaderDistance = min(prevDists)
 
-        if len(invaders) > 0 and len(prevInvaders) > 0 and closestInvaderDistance < prevClosestInvaderDistance:
+        if (
+            len(invaders) > 0
+            and len(prevInvaders) > 0
+            and closestInvaderDistance < prevClosestInvaderDistance
+        ):
             reward += 0.09
 
         if len(prevInvaders) > 0:
             if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
                 reward += 0.9
-            #if power pellet invert reward TODO TODO
+            # if power pellet invert reward TODO TODO
         return reward
-    
+
     def getDefendingReward(self, prevState, prev_action, currentState):
         reward = 0
         myPos = currentState.getAgentState(self.index).getPosition()
         prevPos = prevState.getAgentState(self.index).getPosition()
-        myPosAsFloat = (float(myPos[0]), float(myPos[1])) 
+        myPosAsFloat = (float(myPos[0]), float(myPos[1]))
         if currentState.getAgentState(self.index).isPacman:
             reward += -0.012
-        if self.getMazeDistance(myPos, self.start) > self.getMazeDistance(prevPos, self.start) and self.numOfMoves < 10:
+        if (
+            self.getMazeDistance(myPos, self.start)
+            > self.getMazeDistance(prevPos, self.start)
+            and self.numOfMoves < 10
+        ):
             reward += 0.001
         if myPos not in self.coverageMap.keys():
             reward += 0.01
         elif self.coverageMap[myPos] >= 12:
             reward += 0.009
         return reward
-    
 
     def getFeatures(self, gameState, action):
         features = util.Counter()
@@ -849,26 +859,37 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             features["onDefense"] = 0.0
 
         features["leavingStart"] = 0.0
-        if self.getMazeDistance(myPos, self.start) > self.getMazeDistance(prevPos, self.start) and self.numOfMoves < 10:
+        if (
+            self.getMazeDistance(myPos, self.start)
+            > self.getMazeDistance(prevPos, self.start)
+            and self.numOfMoves < 10
+        ):
             features["leavingStart"] = 1.0
 
         # Computes distance to invaders we can see
         enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
         invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
         prevEnemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
-        prevInvaders = [a for a in prevEnemies if a.isPacman and a.getPosition() != None]
+        prevInvaders = [
+            a for a in prevEnemies if a.isPacman and a.getPosition() != None
+        ]
         if len(invaders) > 0:
             dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
             closestInvaderDistance = min(dists)
         if len(prevInvaders) > 0:
-            prevDists = [self.getMazeDistance(prevPos, a.getPosition()) for a in prevInvaders]
+            prevDists = [
+                self.getMazeDistance(prevPos, a.getPosition()) for a in prevInvaders
+            ]
             prevClosestInvaderDistance = min(prevDists)
 
-        if len(invaders) > 0 and len(prevInvaders) > 0 and closestInvaderDistance < prevClosestInvaderDistance:
+        if (
+            len(invaders) > 0
+            and len(prevInvaders) > 0
+            and closestInvaderDistance < prevClosestInvaderDistance
+        ):
             features["gotCloserToInvader"] = 1.0
         else:
             features["gotCloserToInvader"] = 0.0
-
 
         features["ateInvader"] = 0.0
         if len(prevInvaders) > 0:
@@ -879,9 +900,6 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             features["coveringGround"] = 1.0
         else:
             features["coveringGround"] = 0.0
-
-        
-        
 
         # if action == Directions.STOP:
         #     features["stop"] = 1
@@ -895,14 +913,13 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 
     def getWeights(self, gameState, action):
         return self.weights
-    
+
     def updateWeights(self, state, action, nextState, rewards):
         actions = nextState.getLegalActions(self.index)
         features = self.getFeatures(state, action)
 
         huntValues = [
-            self.evaluate(nextState, a, DEFENSE_WEIGHTS_HUNT_FEATURES)
-            for a in actions
+            self.evaluate(nextState, a, DEFENSE_WEIGHTS_HUNT_FEATURES) for a in actions
         ]
         maxHuntValue = max(huntValues)
 
@@ -917,26 +934,24 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         ) - self.evaluate(state, action, DEFENSE_WEIGHTS_HUNT_FEATURES)
 
         for feature in DEFENSE_WEIGHTS_HUNT_FEATURES:
-            self.weights[feature] += (
-                LEARNING_RATE * huntDifference * features[feature]
-            )
+            self.weights[feature] += LEARNING_RATE * huntDifference * features[feature]
 
         onDefDifference = (
             rewards["onDefReward"] + DISCOUNT_RATE * maxOnDefValue
-        ) - self. evaluate(state, action, DEFENSE_WEIGHTS_STAYDEF_FEATURES)
+        ) - self.evaluate(state, action, DEFENSE_WEIGHTS_STAYDEF_FEATURES)
 
         for feature in DEFENSE_WEIGHTS_STAYDEF_FEATURES:
             self.weights[feature] += LEARNING_RATE * onDefDifference * features[feature]
-    
-    #TODO TODO TODO change paths to new ones TODO TODO TODO
+
+    # TODO TODO TODO change paths to new ones TODO TODO TODO
     def storeWeights(self):
         weights_json = json.dumps(self.weights, indent=4)
-        with open(TRAINING_WEIGHT_PATH, "w") as outfile:
+        with open(DEFENSE_WEIGHT_PATH, "w") as outfile:
             outfile.write(weights_json)
 
     def loadWeights(self):
         try:
-            with open(TRAINING_WEIGHT_PATH, "r") as file:
+            with open(DEFENSE_WEIGHT_PATH, "r") as file:
                 self.weights = json.load(file)
         except IOError:
             print("Weights file not found.")
@@ -945,6 +960,10 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         self.weights = {}
         for key in DEFENSE_WEIGHTS_ALL_FEATURES:
             self.weights[key] = 0.0
+
+    def final(self, gameState):
+        # print("Storing weights as game is over.")
+        self.storeWeights()
 
 
 class DummyAgent(CaptureAgent):
