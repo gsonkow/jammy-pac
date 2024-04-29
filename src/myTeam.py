@@ -809,7 +809,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         else:
             self.capsuleList = gameState.getBlueCapsules()
 
-        print(self.enemyPowered)
+        
         
 
         # store action and state for next weight update
