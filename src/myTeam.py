@@ -27,8 +27,7 @@ from util import nearestPoint
 # MARK: Constants
 ##################
 
-# TODO Submit your final team with this set to False!
-TRAINING = False
+TRAINING = True
 
 # Name of weights / any agent parameters that should persist between
 # games. Should be loaded at the start of any game, training or otherwise
@@ -518,7 +517,7 @@ class MultiAgent(ReflexCaptureAgent):
             if not self.red and gameState.getScore() < -2:
                 return self.getFeaturesDefense(gameState, action)
         # otherwise, continue with offense
-        return getFeaturesOffense(gameState, action)
+        return self.getFeaturesOffense(gameState, action)
 
     def getWeights(self, gameState, action):
         """
@@ -894,17 +893,16 @@ class MultiAgent(ReflexCaptureAgent):
             for opponent in self.getOpponents(successor)
         ]
         ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
-        if len(ghosts) > 0:
+
+        features[GHOST]["distanceToGhost"] = 0.0
+        ghostsVisible = len(ghosts) > 0
+        if ghostsVisible:
             minGhostDistance = (
                 min([self.getMazeDistance(nextPos, a.getPosition()) for a in ghosts])
                 + 1
             )
-            features[GHOST]["distanceToGhost"] = minGhostDistance / (
-                self.width * self.height
-            )
-        else:
-            features[GHOST]["distanceToGhost"] = 0.0
-
+            if minGhostDistance < 7:
+                features[GHOST]["distanceToGhost"] = -1 / (minGhostDistance + 1)
         # GENERAL FEATURES
         # features[GENERAL]["closerToHome"]
         minBorderDistancePrev = min(
