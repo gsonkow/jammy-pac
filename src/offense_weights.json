@@ -1,0 +1,12 @@
+{
+    "pellets": {
+        "gotCloserToFood": 0.14051021663888497,
+        "pelletEaten": 0.2501417194392714
+    },
+    "ghosts": {
+        "distanceToGhost": 0.6947951075208162
+    },
+    "general": {
+        "closerToHome": 0.9999700314687635
+    }
+}
