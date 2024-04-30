@@ -27,7 +27,7 @@ from util import nearestPoint
 # MARK: Constants
 ##################
 
-TRAINING = True
+TRAINING = False
 
 # Name of weights / any agent parameters that should persist between
 # games. Should be loaded at the start of any game, training or otherwise
