@@ -912,7 +912,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         if (
             self.getMazeDistance(myPos, self.start)
             > self.getMazeDistance(prevPos, self.start)
-            and self.numOfMoves < 10
+            and self.numOfMoves < 30
         ):
             features["leavingStart"] = 1.0
 
@@ -956,7 +956,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
             if prevClosestInvaderDistance <= 1 and len(invaders) < len(prevInvaders):
                 features["ateInvader"] = 1.0
 
-        if myPos not in self.coverageMap.keys() or self.coverageMap[myPos] >= 6:
+        if myPos not in self.coverageMap.keys() or self.coverageMap[myPos] >= 12:
             features["coveringGround"] = 1.0
         else:
             features["coveringGround"] = 0.0
